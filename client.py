@@ -110,42 +110,6 @@ class SynergyClient:
             self.controlling = False
             reason = data.get('reason', 'unknown')
             print(f"🔄 Kontrol bırakıldı! Sebep: {reason}")
-            
-        elif msg_type == 'mouse_move':
-            if self.controlling:
-                x = data.get('x', 0)
-                y = data.get('y', 0)
-                
-                # Koordinat dönüşümü (server ekranından client ekranına)
-                client_x = int(x * self.screen_width / self.server_screen_width)
-                client_y = int(y * self.screen_height / self.server_screen_height)
-                
-                print(f"🖱️ Mouse hareket: Server({x},{y}) -> Client({client_x},{client_y})")
-                self.input_handler.move_mouse(client_x, client_y)
-                
-        elif msg_type == 'mouse_click':
-            if self.controlling:
-                button = data.get('button', 'left')
-                action = data.get('action', 'click')
-                x = data.get('x', 0)
-                y = data.get('y', 0)
-                
-                # Koordinat dönüşümü
-                client_x = int(x * self.screen_width / self.server_screen_width)
-                client_y = int(y * self.screen_height / self.server_screen_height)
-                
-                print(f"🖱️ Mouse {action}: {button} at ({client_x},{client_y})")
-                self.input_handler.click_mouse(client_x, client_y, button, action)
-                
-        elif msg_type == 'mouse_scroll':
-            if self.controlling:
-                x = data.get('x', 0)
-                y = data.get('y', 0)
-                dx = data.get('dx', 0)
-                dy = data.get('dy', 0)
-                
-                print(f"🖱️ Mouse scroll: ({dx},{dy}) at ({x},{y})")
-                self.input_handler.scroll_mouse(x, y, dx, dy)
 
     def start_edge_detection(self):
         """Kenar algılama başlat"""

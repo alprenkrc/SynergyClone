@@ -23,9 +23,6 @@ class SynergyServer:
         self.client_info = {}  # Client bilgileri
         self.running = True
         
-        # Test butonları için
-        self.manual_mode = False
-        
     async def register_client(self, websocket, path):
         """Yeni client kaydı"""
         self.clients.add(websocket)

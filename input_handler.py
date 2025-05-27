@@ -192,6 +192,150 @@ class InputHandler:
             self.mouse_controller = None
             self.keyboard_controller = None
     
+    def start(self):
+        """Input handler'ı başlat"""
+        try:
+            print(f"🎮 Input Handler başlatılıyor... Platform: {self.platform}")
+            
+            # macOS izin kontrolü
+            if self.platform == "darwin":
+                if not self.accessibility_available:
+                    print("⚠️ macOS Accessibility izni yok - input capture devre dışı")
+                    return True  # Yine de başlat ama capture yapmadan
+                else:
+                    print("✅ macOS Accessibility izni mevcut")
+            
+            # Pynput kontrolü
+            if not self.mouse_controller:
+                print("⚠️ Pynput mevcut değil - input capture devre dışı")
+                return True
+            
+            print("✅ Input Handler başarıyla başlatıldı")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Input Handler başlatma hatası: {e}")
+            return False
+    
+    def stop(self):
+        """Input handler'ı durdur"""
+        try:
+            print("🛑 Input Handler durduruluyor...")
+            
+            # Capture'ı durdur
+            if self.capturing:
+                self.stop_capture()
+            
+            print("✅ Input Handler durduruldu")
+            
+        except Exception as e:
+            print(f"⚠️ Input Handler durdurma hatası: {e}")
+    
+    def get_screen_size(self):
+        """Ekran boyutlarını döndür"""
+        try:
+            if self.platform == "windows":
+                import ctypes
+                user32 = ctypes.windll.user32
+                # DPI awareness ayarla
+                try:
+                    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+                except:
+                    pass
+                width = user32.GetSystemMetrics(0)
+                height = user32.GetSystemMetrics(1)
+                return width, height
+            
+            elif self.platform == "darwin":
+                try:
+                    import Quartz
+                    main_display = Quartz.CGMainDisplayID()
+                    width = Quartz.CGDisplayPixelsWide(main_display)
+                    height = Quartz.CGDisplayPixelsHigh(main_display)
+                    return width, height
+                except:
+                    # Fallback
+                    return 1920, 1080
+            
+            else:  # Linux
+                try:
+                    import tkinter as tk
+                    root = tk.Tk()
+                    width = root.winfo_screenwidth()
+                    height = root.winfo_screenheight()
+                    root.destroy()
+                    return width, height
+                except:
+                    return 1920, 1080
+                    
+        except Exception as e:
+            print(f"⚠️ Ekran boyutu alma hatası: {e}")
+            return 1920, 1080  # Varsayılan değer
+    
+    def move_mouse(self, x, y):
+        """Mouse'u belirtilen pozisyona taşı"""
+        try:
+            if self.platform == "windows":
+                # Windows API kullan
+                import ctypes
+                result = ctypes.windll.user32.SetCursorPos(int(x), int(y))
+                return bool(result)
+            
+            elif self.mouse_controller:
+                # Pynput kullan
+                self.mouse_controller.position = (x, y)
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Mouse hareket hatası: {e}")
+            return False
+    
+    def click_mouse(self, x, y, button='left', action='click'):
+        """Mouse click simüle et"""
+        try:
+            # Önce mouse'u pozisyona taşı
+            if not self.move_mouse(x, y):
+                return False
+            
+            if self.mouse_controller:
+                from pynput.mouse import Button
+                
+                # Button mapping
+                button_map = {
+                    'left': Button.left,
+                    'right': Button.right,
+                    'middle': Button.middle
+                }
+                
+                btn = button_map.get(button, Button.left)
+                
+                if action in ['click', 'press']:
+                    self.mouse_controller.press(btn)
+                if action in ['click', 'release']:
+                    self.mouse_controller.release(btn)
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Mouse click hatası: {e}")
+            return False
+    
+    def scroll_mouse(self, x, y, dx, dy):
+        """Mouse scroll simüle et"""
+        try:
+            if self.mouse_controller:
+                self.mouse_controller.scroll(dx, dy)
+                return True
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Mouse scroll hatası: {e}")
+            return False
+
     def check_accessibility_permissions(self):
         """Accessibility izinlerini kontrol eder ve sonucu döndürür."""
         if self.platform != "darwin":
