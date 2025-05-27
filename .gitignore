@@ -41,4 +41,8 @@ server_config.json
 client_config.json
 
 # Logs
-*.log 
+*.log
+
+# macOS App Bundles
+*.app/
+SynergyClone*.app 

@@ -56,12 +56,30 @@ SynergyClone/
 
 macOS'ta **Accessibility izinleri** gereklidir:
 
+### 🔧 Seçenek 1: .app Bundle Kullanın (Önerilen)
+```bash
+# .app bundle oluşturun
+python3 create_macos_app.py
+
+# Oluşturulan uygulamayı çalıştırın
+open "SynergyClone Server.app"
+```
+
+1. **SynergyClone Server.app** otomatik olarak izin isteyecek
+2. **"Open System Preferences"** tıklayın
+3. **Privacy & Security** → **Accessibility**'de uygulamayı **etkinleştirin**
+4. Uygulamayı **yeniden başlatın**
+
+### 🔧 Seçenek 2: Terminal İzni
 1. **System Settings** → **Privacy & Security** → **Accessibility**
 2. **Terminal** veya **Python**'ı ekleyin
 3. İzinleri **etkinleştirin**
-4. Uygulamayı **yeniden başlatın**
+4. `python3 run_server.py` çalıştırın
 
-**İzin vermezseniz:** Sadece WebSocket iletişimi çalışır (manuel clipboard paylaşımı)
+### 🚨 İzin Vermezseniz
+- ✅ **WebSocket iletişimi** çalışır
+- ❌ **Otomatik mouse/klavye yakalama** çalışmaz
+- 📋 **Manuel clipboard paylaşımı** gerekir
 
 ## 🎮 Kullanım
 

@@ -85,19 +85,20 @@ class SynergyServer:
             # Input yakalamayı başlat (güvenli şekilde)
             input_capture_success = False
             try:
-                # macOS'ta güvenli mod - izin kontrolü yapmadan atla
+                # macOS'ta güvenli mod - input yakalama atla
                 if self.input_handler.platform == "darwin":
                     self.log("🍎 macOS tespit edildi")
-                    self.log("⚠️ Güvenlik nedeniyle input yakalama atlanıyor")
-                    self.log("⚠️ Sunucu sadece WebSocket iletişimi ile çalışacak")
+                    self.log("⚠️ Terminal'den çalıştırıldığında güvenli mod aktif")
+                    self.log("⚠️ Input yakalama atlanıyor - sadece WebSocket modu")
                     self.log("")
-                    self.log("🔧 Tam özellikli kullanım için:")
-                    self.log("1. System Settings > Privacy & Security > Accessibility")
-                    self.log("2. Terminal veya Python'ı listeye ekleyin")
-                    self.log("3. İzinleri etkinleştirin")
-                    self.log("4. Uygulamayı yeniden başlatın")
+                    self.log("🎯 Mouse/Klavye paylaşımı için:")
+                    self.log("💡 'SynergyClone Server.app' kullanın (önerilen)")
+                    self.log("💡 Veya Terminal'e accessibility izni verin")
                     self.log("")
-                    self.log("💡 Alternatif: 'SynergyClone Server.app' kullanın")
+                    self.log("📋 Manuel kullanım:")
+                    self.log("- Client bağlanabilir")
+                    self.log("- Clipboard paylaşımı çalışır")
+                    self.log("- Mouse/klavye manuel olarak kontrol edilmeli")
                 else:
                     # macOS değilse normal şekilde başlat
                     self.input_handler.start_capture()
@@ -505,7 +506,23 @@ class SynergyServer:
     def _stop_server_gui(self):
         """GUI'den sunucuyu durdurur."""
         if self.running:
-            asyncio.create_task(self.stop_server())
+            # Asyncio event loop kontrolü
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(self.stop_server())
+            except RuntimeError:
+                # Event loop yoksa thread'de çalıştır
+                import threading
+                def stop_async():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self.stop_server())
+                    finally:
+                        loop.close()
+                
+                stop_thread = threading.Thread(target=stop_async, daemon=True)
+                stop_thread.start()
         
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)

@@ -207,14 +207,6 @@ class InputHandler:
         if self.capturing:
             return True
         
-        # macOS izin kontrolü
-        if self.platform == "darwin" and not self.accessibility_available:
-            raise PermissionError(
-                "macOS Accessibility izinleri gerekli. "
-                "System Settings > Privacy & Security > Accessibility'den "
-                "Terminal veya Python'a izin verin."
-            )
-        
         if not self.mouse_controller or not self.keyboard_controller:
             raise RuntimeError("Input controllers başlatılamadı")
         
@@ -231,32 +223,43 @@ class InputHandler:
                     self.capturing = False
                     raise PermissionError(f"macOS accessibility izinleri eksik: {e}")
             
-            # Mouse listener
-            self.mouse_listener = self.MouseListener(
-                on_move=self._on_mouse_move,
-                on_click=self._on_mouse_click,
-                on_scroll=self._on_mouse_scroll,
-                suppress=self.suppress_input
-            )
-            
-            # Keyboard listener
-            self.keyboard_listener = self.KeyboardListener(
-                on_press=self._on_key_press,
-                on_release=self._on_key_release,
-                suppress=self.suppress_input
-            )
-            
-            # Listener'ları güvenli şekilde başlat
+            # Mouse listener - güvenli başlatma
             try:
+                self.mouse_listener = self.MouseListener(
+                    on_move=self._on_mouse_move,
+                    on_click=self._on_mouse_click,
+                    on_scroll=self._on_mouse_scroll,
+                    suppress=self.suppress_input
+                )
                 self.mouse_listener.start()
                 time.sleep(0.1)  # Kısa bir bekleme
                 
+                # Mouse listener çalışıyor mu test et
+                if not self.mouse_listener.running:
+                    raise RuntimeError("Mouse listener başlatılamadı")
+                    
+            except Exception as e:
+                self.capturing = False
+                if self.mouse_listener:
+                    try:
+                        self.mouse_listener.stop()
+                    except:
+                        pass
+                raise RuntimeError(f"Mouse listener hatası: {e}")
+            
+            # Keyboard listener - güvenli başlatma
+            try:
+                self.keyboard_listener = self.KeyboardListener(
+                    on_press=self._on_key_press,
+                    on_release=self._on_key_release,
+                    suppress=self.suppress_input
+                )
                 self.keyboard_listener.start()
                 time.sleep(0.1)  # Kısa bir bekleme
                 
-                # Test et - eğer crash olacaksa burada olur
-                if self.platform == "darwin":
-                    time.sleep(0.5)  # macOS'ta biraz daha bekle
+                # Keyboard listener çalışıyor mu test et
+                if not self.keyboard_listener.running:
+                    raise RuntimeError("Keyboard listener başlatılamadı")
                     
             except Exception as e:
                 self.capturing = False
@@ -270,12 +273,36 @@ class InputHandler:
                         self.keyboard_listener.stop()
                     except:
                         pass
-                raise RuntimeError(f"Input listener başlatılamadı: {e}")
+                raise RuntimeError(f"Keyboard listener hatası: {e}")
+            
+            # Final test - macOS'ta biraz daha bekle
+            if self.platform == "darwin":
+                time.sleep(0.5)  # macOS'ta biraz daha bekle
+                
+                # Listener'lar hala çalışıyor mu?
+                if not (self.mouse_listener.running and self.keyboard_listener.running):
+                    self.capturing = False
+                    raise RuntimeError("Listener'lar beklenmedik şekilde durdu")
             
             return True
             
         except Exception as e:
             self.capturing = False
+            # Tüm listener'ları temizle
+            if hasattr(self, 'mouse_listener') and self.mouse_listener:
+                try:
+                    self.mouse_listener.stop()
+                except:
+                    pass
+                self.mouse_listener = None
+                
+            if hasattr(self, 'keyboard_listener') and self.keyboard_listener:
+                try:
+                    self.keyboard_listener.stop()
+                except:
+                    pass
+                self.keyboard_listener = None
+                
             raise RuntimeError(f"Input capture başlatılamadı: {e}")
         
     def stop_capture(self):
