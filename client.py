@@ -132,6 +132,10 @@ class SynergyClient:
         if not self.websocket:
             return
         
+        # Ekran bilgilerini logla
+        self.log(f"📱 Client ekran bilgisi: {self.client_screen.width}x{self.client_screen.height}")
+        self.log(f"🖥️ Platform: {self.input_handler.platform}")
+        
         handshake_msg = Message(MessageType.HANDSHAKE, {
             'screen_info': {
                 'width': self.client_screen.width,
@@ -211,7 +215,21 @@ class SynergyClient:
                     self.log(f"📐 Ölçek faktörleri: X={scale_x:.3f}, Y={scale_y:.3f}")
                     self._scale_logged = True
                 
-                self.input_handler.simulate_mouse_move(scaled_x, scaled_y)
+                # Her 10. mouse hareketini logla
+                if not hasattr(self, '_mouse_count'):
+                    self._mouse_count = 0
+                self._mouse_count += 1
+                
+                if self._mouse_count % 10 == 1:
+                    self.log(f"🖱️ Mouse hareket: ({x:.1f}, {y:.1f}) -> ({scaled_x:.1f}, {scaled_y:.1f})")
+                
+                # Mouse simülasyonunu test et
+                try:
+                    self.input_handler.simulate_mouse_move(scaled_x, scaled_y)
+                    if self._mouse_count == 1:
+                        self.log("✅ Mouse simülasyonu başarılı")
+                except Exception as e:
+                    self.log(f"❌ Mouse simülasyonu hatası: {e}")
             else:
                 self.input_handler.simulate_mouse_move(x, y)
             

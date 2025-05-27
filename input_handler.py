@@ -422,6 +422,21 @@ class InputHandler:
         if not self.mouse_controller:
             return
         try:
+            # Windows'ta daha güvenilir yöntem kullan
+            if self.platform == "windows":
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+                    
+                    # Windows API ile mouse hareket ettir
+                    ctypes.windll.user32.SetCursorPos(int(x), int(y))
+                    print(f"Windows API mouse hareket: ({x}, {y})")
+                    return
+                except Exception as e:
+                    print(f"Windows API hatası: {e}")
+                    # Fallback: pynput kullan
+            
+            # Diğer platformlar veya Windows API başarısızsa pynput kullan
             self.mouse_controller.position = (x, y)
         except Exception as e:
             print(f"Mouse hareket simülasyonu hatası: {e}")
@@ -431,6 +446,42 @@ class InputHandler:
         if not self.mouse_controller or not hasattr(self, 'Button'):
             return
         try:
+            # Windows'ta daha güvenilir yöntem kullan
+            if self.platform == "windows":
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+                    
+                    # Önce mouse'u pozisyona götür
+                    ctypes.windll.user32.SetCursorPos(int(x), int(y))
+                    
+                    # Button mapping
+                    if button == "left":
+                        down_flag = 0x0002  # MOUSEEVENTF_LEFTDOWN
+                        up_flag = 0x0004    # MOUSEEVENTF_LEFTUP
+                    elif button == "right":
+                        down_flag = 0x0008  # MOUSEEVENTF_RIGHTDOWN
+                        up_flag = 0x0010    # MOUSEEVENTF_RIGHTUP
+                    elif button == "middle":
+                        down_flag = 0x0020  # MOUSEEVENTF_MIDDLEDOWN
+                        up_flag = 0x0040    # MOUSEEVENTF_MIDDLEUP
+                    else:
+                        down_flag = 0x0002  # Default to left
+                        up_flag = 0x0004
+                    
+                    # Mouse event gönder
+                    if pressed:
+                        ctypes.windll.user32.mouse_event(down_flag, 0, 0, 0, 0)
+                    else:
+                        ctypes.windll.user32.mouse_event(up_flag, 0, 0, 0, 0)
+                    
+                    print(f"Windows API mouse click: ({x}, {y}) {button} {'down' if pressed else 'up'}")
+                    return
+                except Exception as e:
+                    print(f"Windows API click hatası: {e}")
+                    # Fallback: pynput kullan
+            
+            # Diğer platformlar veya Windows API başarısızsa pynput kullan
             # Önce mouse'u ilgili pozisyona götür
             self.mouse_controller.position = (x, y)
             time.sleep(0.01)  # Küçük bir gecikme
