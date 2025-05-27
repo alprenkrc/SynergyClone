@@ -1,624 +1,311 @@
 #!/usr/bin/env python3
 """
-SynergyClone Server - Ana bilgisayar uygulaması
-Mouse ve klavye olaylarını yakalar ve bağlı istemcilere iletir.
+SynergyClone Server - Mouse ve keyboard paylaşımı için server
 """
 
 import asyncio
 import websockets
 import json
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
 import threading
 import time
-from typing import Dict, Set, Optional
-import logging
-
-from utils import (
-    MessageType, Message, ScreenInfo, MouseEvent, KeyEvent,
-    get_local_ip, ConfigManager
-)
-from input_handler import InputHandler, ScreenManager, check_macos_accessibility_permissions, open_accessibility_settings, request_macos_accessibility_permission
+import platform
+from input_handler import InputHandler
 
 class SynergyServer:
-    def __init__(self):
-        self.config_manager = ConfigManager("server_config.json")
-        self.config = self.config_manager.load_config()
-        
-        # Server durumu
-        self.running = False
-        self.clients: Dict[str, websockets.WebSocketServerProtocol] = {}
-        self.server: Optional[websockets.WebSocketServer] = None
-        
-        # Input handler ve screen manager
+    def __init__(self, host='0.0.0.0', port=8765):
+        self.host = host
+        self.port = port
+        self.clients = set()
         self.input_handler = InputHandler()
-        self.screen_manager = ScreenManager()
+        self.controlling_local = True  # Başlangıçta local kontrolde
+        self.screen_width = 1920  # Varsayılan değerler
+        self.screen_height = 1080
+        self.client_info = {}  # Client bilgileri
+        self.running = True
         
-        # Sunucu ekran bilgisi
-        self.server_screen = self.screen_manager.get_primary_screen()
+        # Test butonları için
+        self.manual_mode = False
         
-        # Client ekranları ve düzeni
-        self.client_screens: Dict[str, ScreenInfo] = {}
-        self.screen_layout = []  # Ekranların düzeni
-        
-        # Mouse tracking
-        self.last_mouse_pos = (0, 0)
-        self.current_screen = "server"  # Hangi ekranda mouse var
-        self.mouse_moved_to_client = False
-        
-        # Callback'leri ayarla
-        self._setup_input_callbacks()
-        
-        # GUI
-        self.root = None
-        self.status_label = None
-        self.clients_listbox = None
-        self.log_text = None
-        
-        # Logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-    
-    def _setup_input_callbacks(self):
-        """Input handler callback'lerini ayarlar."""
-        self.input_handler.on_mouse_move = self._handle_mouse_move
-        self.input_handler.on_mouse_click = self._handle_mouse_click
-        self.input_handler.on_mouse_scroll = self._handle_mouse_scroll
-        self.input_handler.on_key_press = self._handle_key_press
-        self.input_handler.on_key_release = self._handle_key_release
-    
-    async def start_server(self, host: str = "0.0.0.0", port: int = 24800):
-        """WebSocket sunucusunu başlatır."""
-        try:
-            self.server = await websockets.serve(
-                self._handle_client,
-                host,
-                port,
-                ping_interval=30,
-                ping_timeout=10
-            )
-            self.running = True
-            
-            self.log(f"Sunucu başlatıldı: {host}:{port}")
-            self.log(f"Yerel IP: {get_local_ip()}")
-            
-            # Input yakalamayı başlat (güvenli şekilde)
-            input_capture_success = False
-            try:
-                # macOS'ta accessibility izinlerini kontrol et
-                if self.input_handler.platform == "darwin":
-                    self.log("🍎 macOS tespit edildi")
-                    if self.input_handler.accessibility_available:
-                        self.log("✅ Accessibility izinleri mevcut")
-                        self.log("🎯 Input yakalama başlatılıyor...")
-                        self.input_handler.start_capture()
-                        input_capture_success = True
-                        self.log("✅ Input yakalama başarıyla başlatıldı")
-                        self.log("🎯 Mouse ve klavye olayları yakalanacak")
-                    else:
-                        self.log("⚠️ Accessibility izinleri eksik")
-                        self.log("⚠️ Input yakalama atlanıyor - sadece WebSocket modu")
-                        self.log("")
-                        self.log("🎯 Mouse/Klavye paylaşımı için:")
-                        self.log("💡 System Settings > Privacy & Security > Accessibility")
-                        self.log("💡 Terminal veya Python'a izin verin ve uygulamayı yeniden başlatın")
-                        self.log("")
-                        self.log("📋 Manuel kullanım:")
-                        self.log("- Client bağlanabilir")
-                        self.log("- Clipboard paylaşımı çalışır")
-                        self.log("- Mouse/klavye manuel olarak kontrol edilmeli")
-                else:
-                    # macOS değilse normal şekilde başlat
-                    self.input_handler.start_capture()
-                    input_capture_success = True
-                    self.log("✅ Input yakalama başarıyla başlatıldı")
-                    self.log("🎯 Mouse ve klavye olayları yakalanacak")
-                    
-            except Exception as e:
-                self.log(f"⚠️ Input yakalama başlatılamadı: {str(e)[:100]}...")
-                self.log("⚠️ Sunucu sadece WebSocket iletişimi ile çalışacak")
-                if "accessibility" in str(e).lower() or "trusted" in str(e).lower():
-                    self.log("💡 macOS'ta: System Settings > Privacy & Security > Accessibility")
-                    self.log("💡 Terminal veya Python'a izin verin ve uygulamayı yeniden başlatın")
-            
-            # GUI'de durum bilgisini güncelle
-            if hasattr(self, 'status_label') and self.status_label:
-                if input_capture_success:
-                    status_text = "Durum: Çalışıyor (Input Capture Aktif)"
-                    color = "green"
-                else:
-                    status_text = "Durum: Çalışıyor (Sadece WebSocket)"
-                    color = "orange"
-                
-                self.status_label.config(text=status_text, foreground=color)
-            
-            # Server'ı sürekli çalıştır
-            await self.server.wait_closed()
-            
-        except Exception as e:
-            self.log(f"Sunucu başlatma hatası: {e}")
-            raise
-    
-    async def stop_server(self):
-        """Sunucuyu durdurur."""
-        self.running = False
-        
-        # Input yakalamayı durdur (güvenli şekilde)
-        try:
-            self.input_handler.stop_capture()
-        except Exception as e:
-            self.log(f"Input yakalama durdurma hatası: {e}")
-        
-        # Tüm istemcileri bilgilendir
-        disconnect_msg = Message(MessageType.DISCONNECT)
-        await self._broadcast_message(disconnect_msg)
-        
-        # Bağlantıları kapat
-        for client_id, websocket in self.clients.copy().items():
-            try:
-                await websocket.close()
-            except:
-                pass
-        
-        self.clients.clear()
-        
-        # Sunucuyu kapat
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-        
-        self.log("Sunucu durduruldu")
-    
-    async def _handle_client(self, websocket, path):
-        """Yeni istemci bağlantısını işler."""
-        client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-        self.clients[client_id] = websocket
-        
-        self.log(f"Yeni istemci bağlandı: {client_id}")
-        self._update_clients_list()
+    async def register_client(self, websocket, path):
+        """Yeni client kaydı"""
+        self.clients.add(websocket)
+        client_addr = websocket.remote_address
+        print(f"✅ Client bağlandı: {client_addr}")
         
         try:
-            # Handshake mesajını bekle
-            async for message in websocket:
-                try:
-                    msg = Message.from_json(message)
-                    await self._process_client_message(client_id, msg)
-                except json.JSONDecodeError:
-                    self.log(f"Geçersiz mesaj formatı: {client_id}")
-                except Exception as e:
-                    self.log(f"Mesaj işleme hatası: {e}")
-                    
-        except websockets.exceptions.ConnectionClosed:
-            self.log(f"İstemci bağlantısı kesildi: {client_id}")
-        except Exception as e:
-            self.log(f"İstemci işleme hatası: {e}")
+            await websocket.wait_closed()
         finally:
-            # İstemciyi listeden çıkar
-            if client_id in self.clients:
-                del self.clients[client_id]
-            if client_id in self.client_screens:
-                del self.client_screens[client_id]
-            
-            self._update_clients_list()
-            self.log(f"İstemci ayrıldı: {client_id}")
-    
-    async def _process_client_message(self, client_id: str, message: Message):
-        """İstemciden gelen mesajları işler."""
-        if message.type == MessageType.HANDSHAKE:
-            # İstemci ekran bilgilerini al
-            screen_data = message.data.get('screen_info', {})
-            screen = ScreenInfo(
-                width=screen_data.get('width', 1920),
-                height=screen_data.get('height', 1080),
-                name=screen_data.get('name', f"Client-{client_id}")
-            )
-            self.client_screens[client_id] = screen
-            
-            # Handshake yanıtını gönder
-            response = Message(MessageType.HANDSHAKE, {
-                'server_screen': {
-                    'width': self.server_screen.width,
-                    'height': self.server_screen.height,
-                    'name': self.server_screen.name
-                },
-                'status': 'connected'
-            })
-            await self._send_message(client_id, response)
-            
-            self.log(f"Handshake tamamlandı: {client_id}")
-            
-        elif message.type == MessageType.HEARTBEAT:
-            # Heartbeat yanıtı gönder
-            response = Message(MessageType.HEARTBEAT)
-            await self._send_message(client_id, response)
-            
-        elif message.type == MessageType.CLIPBOARD:
-            # Clipboard içeriğini diğer istemcilere ilet
-            clipboard_text = message.data.get('text', '')
-            self.input_handler.set_clipboard_text(clipboard_text)
-            
-            # Diğer istemcilere de gönder
-            for other_client_id in self.clients:
-                if other_client_id != client_id:
-                    await self._send_message(other_client_id, message)
-    
-    async def _send_message(self, client_id: str, message: Message):
-        """Belirli bir istemciye mesaj gönderir."""
-        if client_id in self.clients:
-            try:
-                websocket = self.clients[client_id]
-                await websocket.send(message.to_json())
-            except Exception as e:
-                self.log(f"Mesaj gönderme hatası ({client_id}): {e}")
-    
-    async def _broadcast_message(self, message: Message, exclude_client: str = None):
-        """Tüm istemcilere mesaj gönderir."""
-        for client_id in self.clients:
-            if client_id != exclude_client:
-                await self._send_message(client_id, message)
-    
-    def _handle_mouse_move(self, event: MouseEvent):
-        """Mouse hareket olayını işler."""
-        if not self.running or not self.clients:
-            return
-        
-        self.last_mouse_pos = (event.x, event.y)
-        
-        # Eğer mouse sunucu ekranından çıktıysa istemciye gönder
-        if self._should_forward_to_client(event.x, event.y):
-            # Mouse'u hangi istemciye göndereceğimizi belirle
-            target_client = self._get_target_client_for_position(event.x, event.y)
-            
-            if target_client and target_client != self.current_screen:
-                self.current_screen = target_client
-                self.input_handler.set_suppress_input(True)
-                self.mouse_moved_to_client = True
-                self.log(f"Mouse client'a geçti: {target_client}")
-            
-            # Mouse olayını istemciye gönder - thread-safe şekilde
-            if target_client and target_client in self.clients:
-                msg = Message(MessageType.MOUSE_MOVE, {
-                    'x': event.x,
-                    'y': event.y
-                })
-                self._send_message_threadsafe(target_client, msg)
-        else:
-            # Mouse sunucu ekranına geri döndü
-            if self.current_screen != "server":
-                self.current_screen = "server"
-                self.input_handler.set_suppress_input(False)
-                self.mouse_moved_to_client = False
-                self.log("Mouse sunucuya geri döndü")
-    
-    def _send_message_threadsafe(self, client_id: str, message: Message):
-        """Thread-safe şekilde mesaj gönderir."""
-        try:
-            # Asyncio event loop'u kontrol et
-            loop = asyncio.get_running_loop()
-            # Eğer loop varsa task oluştur
-            asyncio.run_coroutine_threadsafe(
-                self._send_message(client_id, message), loop
-            )
-        except RuntimeError:
-            # Event loop yoksa veya farklı thread'deyse, queue'ya ekle
-            if not hasattr(self, 'message_queue'):
-                self.message_queue = []
-            self.message_queue.append((client_id, message))
-    
-    def _handle_mouse_click(self, event: MouseEvent):
-        """Mouse tıklama olayını işler."""
-        if not self.running or not self.clients or not self.mouse_moved_to_client:
-            return
-        
-        msg = Message(MessageType.MOUSE_CLICK, {
-            'x': event.x,
-            'y': event.y,
-            'button': event.button,
-            'pressed': event.pressed
-        })
-        
-        if self.current_screen != "server":
-            self._send_message_threadsafe(self.current_screen, msg)
-    
-    def _handle_mouse_scroll(self, event: MouseEvent):
-        """Mouse scroll olayını işler."""
-        if not self.running or not self.clients or not self.mouse_moved_to_client:
-            return
-        
-        msg = Message(MessageType.MOUSE_SCROLL, {
-            'x': event.x,
-            'y': event.y,
-            'scroll_x': event.scroll_x,
-            'scroll_y': event.scroll_y
-        })
-        
-        if self.current_screen != "server":
-            self._send_message_threadsafe(self.current_screen, msg)
-    
-    def _handle_key_press(self, event: KeyEvent):
-        """Klavye tuşu basma olayını işler."""
-        if not self.running or not self.clients or not self.mouse_moved_to_client:
-            return
-        
-        msg = Message(MessageType.KEY_PRESS, {
-            'key': event.key,
-            'pressed': event.pressed
-        })
-        
-        if self.current_screen != "server":
-            self._send_message_threadsafe(self.current_screen, msg)
-    
-    def _handle_key_release(self, event: KeyEvent):
-        """Klavye tuşu bırakma olayını işler."""
-        if not self.running or not self.clients or not self.mouse_moved_to_client:
-            return
-        
-        msg = Message(MessageType.KEY_RELEASE, {
-            'key': event.key,
-            'pressed': event.pressed
-        })
-        
-        if self.current_screen != "server":
-            self._send_message_threadsafe(self.current_screen, msg)
-    
-    def _should_forward_to_client(self, x: int, y: int) -> bool:
-        """Mouse'un istemciye gönderilip gönderilmeyeceğini belirler."""
-        screen = self.server_screen
-        
-        # Sağ kenardan çıktı mı?
-        if x >= screen.width - 2:
-            self.log(f"➡️ Mouse sağ kenardan çıktı: x={x}, ekran genişliği={screen.width}")
-            return True
-        
-        # Sol kenardan çıktı mı?
-        if x <= 1:
-            self.log(f"⬅️ Mouse sol kenardan çıktı: x={x}")
-            return True
-        
-        # Üst kenardan çıktı mı?
-        if y <= 1:
-            self.log(f"⬆️ Mouse üst kenardan çıktı: y={y}")
-            return True
-        
-        # Alt kenardan çıktı mı?
-        if y >= screen.height - 2:
-            self.log(f"⬇️ Mouse alt kenardan çıktı: y={y}, ekran yüksekliği={screen.height}")
-            return True
-        
-        return False
-    
-    def _get_target_client_for_position(self, x: int, y: int) -> Optional[str]:
-        """Verilen pozisyon için hedef istemciyi belirler."""
-        # Basit mantık: ilk bağlı istemciyi seç
-        return list(self.clients.keys())[0] if self.clients else None
-    
-    def log(self, message: str):
-        """Log mesajı ekler."""
-        timestamp = time.strftime("%H:%M:%S")
-        log_msg = f"[{timestamp}] {message}"
-        print(log_msg)
-        
-        # GUI log'a ekle
-        if self.log_text:
-            try:
-                self.log_text.insert(tk.END, log_msg + "\n")
-                self.log_text.see(tk.END)
-            except:
-                pass
-    
-    def _update_clients_list(self):
-        """İstemci listesini günceller."""
-        if self.clients_listbox:
-            try:
-                self.clients_listbox.delete(0, tk.END)
-                for client_id in self.clients:
-                    screen_info = self.client_screens.get(client_id, None)
-                    display_text = client_id
-                    if screen_info:
-                        display_text += f" ({screen_info.width}x{screen_info.height})"
-                    self.clients_listbox.insert(tk.END, display_text)
-            except:
-                pass
-    
-    def create_gui(self):
-        """GUI oluşturur."""
-        self.root = tk.Tk()
-        self.root.title("SynergyClone Server")
-        self.root.geometry("600x550")
-        
-        # Ana frame
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Sunucu bilgileri
-        info_frame = ttk.LabelFrame(main_frame, text="Sunucu Bilgileri", padding="5")
-        info_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        ttk.Label(info_frame, text=f"IP Adresi: {get_local_ip()}").grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(info_frame, text=f"Port: {self.config['server']['port']}").grid(row=1, column=0, sticky=tk.W)
-        
-        self.status_label = ttk.Label(info_frame, text="Durum: Durduruldu", foreground="red")
-        self.status_label.grid(row=2, column=0, sticky=tk.W)
-        
-        # macOS Accessibility kontrolü
-        if self.input_handler.platform == "darwin":
-            accessibility_frame = ttk.LabelFrame(main_frame, text="macOS Accessibility İzinleri", padding="5")
-            accessibility_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-            
-            # İzin durumu kontrolü
-            has_permission, message = self.input_handler.check_accessibility_permissions()
-            
-            if has_permission:
-                permission_text = "✅ Accessibility izinleri mevcut"
-                permission_color = "green"
-            else:
-                permission_text = "⚠️ Accessibility izinleri gerekli"
-                permission_color = "orange"
-            
-            self.permission_label = ttk.Label(accessibility_frame, text=permission_text, foreground=permission_color)
-            self.permission_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
-            
-            # Açıklama
-            explanation = ttk.Label(accessibility_frame, 
-                text="Mouse ve klavye yakalama için macOS izinleri gereklidir.\nİzin vermezseniz sadece WebSocket iletişimi çalışır.",
-                font=("TkDefaultFont", 9))
-            explanation.grid(row=1, column=0, sticky=tk.W, pady=(0, 5))
-            
-            # Butonlar
-            button_frame = ttk.Frame(accessibility_frame)
-            button_frame.grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
-            
-            ttk.Button(button_frame, text="İzinleri Kontrol Et", 
-                      command=self._check_permissions).grid(row=0, column=0, padx=(0, 5))
-            
-            ttk.Button(button_frame, text="Ayarları Aç", 
-                      command=self._open_accessibility_settings).grid(row=0, column=1)
-        
-        # Kontrol butonları
-        control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        self.start_button = ttk.Button(control_frame, text="Sunucuyu Başlat", command=self._start_server_gui)
-        self.start_button.grid(row=0, column=0, padx=(0, 5))
-        
-        self.stop_button = ttk.Button(control_frame, text="Sunucuyu Durdur", command=self._stop_server_gui, state=tk.DISABLED)
-        self.stop_button.grid(row=0, column=1, padx=(5, 0))
-        
-        # Bağlı istemciler
-        clients_frame = ttk.LabelFrame(main_frame, text="Bağlı İstemciler", padding="5")
-        clients_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
-        
-        self.clients_listbox = tk.Listbox(clients_frame, height=5)
-        self.clients_listbox.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        clients_scrollbar = ttk.Scrollbar(clients_frame, orient=tk.VERTICAL, command=self.clients_listbox.yview)
-        clients_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        self.clients_listbox.configure(yscrollcommand=clients_scrollbar.set)
-        
-        # Log alanı
-        log_frame = ttk.LabelFrame(main_frame, text="Log", padding="5")
-        log_frame.grid(row=3, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10), padx=(10, 0))
-        
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=10, width=40)
-        self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Grid weights
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
-        clients_frame.columnconfigure(0, weight=1)
-        clients_frame.rowconfigure(0, weight=1)
-        log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
-        
-        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
-    
-    def _start_server_gui(self):
-        """GUI'den sunucuyu başlatır."""
-        def start_async():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self.start_server(
-                    self.config['server']['host'],
-                    self.config['server']['port']
-                ))
-            except Exception as e:
-                self.log(f"Sunucu hatası: {e}")
-            finally:
-                loop.close()
-        
-        self.server_thread = threading.Thread(target=start_async, daemon=True)
-        self.server_thread.start()
-        
-        self.start_button.config(state=tk.DISABLED)
-        self.stop_button.config(state=tk.NORMAL)
-        self.status_label.config(text="Durum: Çalışıyor", foreground="green")
-    
-    def _stop_server_gui(self):
-        """GUI'den sunucuyu durdurur."""
-        if self.running:
-            # Asyncio event loop kontrolü
-            try:
-                loop = asyncio.get_running_loop()
-                asyncio.create_task(self.stop_server())
-            except RuntimeError:
-                # Event loop yoksa thread'de çalıştır
-                import threading
-                def stop_async():
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self.stop_server())
-                    finally:
-                        loop.close()
-                
-                stop_thread = threading.Thread(target=stop_async, daemon=True)
-                stop_thread.start()
-        
-        self.start_button.config(state=tk.NORMAL)
-        self.stop_button.config(state=tk.DISABLED)
-        self.status_label.config(text="Durum: Durduruldu", foreground="red")
-    
-    def _check_permissions(self):
-        """Accessibility izinlerini kontrol eder ve GUI'yi günceller."""
-        if self.input_handler.platform != "darwin":
-            return
-        
-        # İzinleri yeniden kontrol et
-        self.input_handler.accessibility_available = check_macos_accessibility_permissions()
-        has_permission, message = self.input_handler.check_accessibility_permissions()
-        
-        if has_permission:
-            permission_text = "✅ Accessibility izinleri mevcut"
-            permission_color = "green"
-            messagebox.showinfo("İzin Kontrolü", "Accessibility izinleri mevcut! Artık tam özellikli sunucu kullanabilirsiniz.")
-        else:
-            permission_text = "⚠️ Accessibility izinleri gerekli"
-            permission_color = "orange"
-            messagebox.showwarning("İzin Kontrolü", 
-                "Accessibility izinleri bulunamadı.\n\n"
-                "Lütfen:\n"
-                "1. 'Ayarları Aç' butonuna tıklayın\n"
-                "2. Terminal veya Python'ı listeye ekleyin\n"
-                "3. İzinleri etkinleştirin\n"
-                "4. Uygulamayı yeniden başlatın")
-        
-        # GUI'yi güncelle
-        if hasattr(self, 'permission_label'):
-            self.permission_label.config(text=permission_text, foreground=permission_color)
-    
-    def _open_accessibility_settings(self):
-        """macOS Accessibility ayarlarını açar."""
-        success = open_accessibility_settings()
-        if success:
-            messagebox.showinfo("Ayarlar Açıldı", 
-                "System Settings açıldı.\n\n"
-                "Lütfen:\n"
-                "1. Privacy & Security > Accessibility bölümüne gidin\n"
-                "2. Terminal veya Python'ı listeye ekleyin\n"
-                "3. İzinleri etkinleştirin\n"
-                "4. Bu uygulamayı yeniden başlatın")
-        else:
-            messagebox.showerror("Hata", "System Settings açılamadı. Manuel olarak açmayı deneyin.")
-    
-    def _on_closing(self):
-        """Pencere kapatılırken çağrılır."""
-        if self.running:
-            self._stop_server_gui()
-        self.root.destroy()
-    
-    def run(self):
-        """Uygulamayı çalıştırır."""
-        self.create_gui()
-        self.root.mainloop()
+            self.clients.remove(websocket)
+            if client_addr in self.client_info:
+                del self.client_info[client_addr]
+            print(f"❌ Client ayrıldı: {client_addr}")
 
-def main():
-    """Ana fonksiyon."""
-    server = SynergyServer()
-    server.run()
+    async def send_to_clients(self, message):
+        """Tüm clientlara mesaj gönder"""
+        if self.clients:
+            # Thread-safe mesaj gönderimi
+            await asyncio.gather(
+                *[self.safe_send(client, message) for client in self.clients.copy()],
+                return_exceptions=True
+            )
+
+    async def safe_send(self, websocket, message):
+        """Güvenli mesaj gönderimi"""
+        try:
+            await websocket.send(json.dumps(message))
+        except websockets.exceptions.ConnectionClosed:
+            # Client bağlantısı kesilmiş, listeden çıkar
+            self.clients.discard(websocket)
+        except Exception as e:
+            print(f"⚠️ Mesaj gönderme hatası: {e}")
+            self.clients.discard(websocket)
+
+    async def handle_client_message(self, websocket, message):
+        """Client mesajlarını işle"""
+        try:
+            data = json.loads(message)
+            msg_type = data.get('type')
+            
+            if msg_type == 'client_info':
+                # Client bilgilerini kaydet
+                client_addr = websocket.remote_address
+                self.client_info[client_addr] = data
+                print(f"📱 Client bilgisi alındı: {data['screen_width']}x{data['screen_height']}")
+                
+            elif msg_type == 'control_returned':
+                # Kontrol geri döndü
+                self.controlling_local = True
+                print("🔄 Kontrol server'a geri döndü")
+                
+        except json.JSONDecodeError:
+            print(f"⚠️ Geçersiz JSON mesajı: {message}")
+        except Exception as e:
+            print(f"⚠️ Mesaj işleme hatası: {e}")
+
+    def switch_to_client(self):
+        """Manuel olarak client'a geç"""
+        if not self.controlling_local:
+            print("⚠️ Zaten client kontrolünde")
+            return
+            
+        if not self.clients:
+            print("⚠️ Bağlı client yok")
+            return
+            
+        self.controlling_local = False
+        print("🎮 Manuel olarak client'a geçildi")
+        
+        # Client'a kontrol mesajı gönder
+        message = {
+            'type': 'take_control',
+            'reason': 'manual_switch'
+        }
+        
+        # Asyncio loop'ta çalıştır
+        asyncio.create_task(self.send_to_clients(message))
+
+    def switch_to_local(self):
+        """Manuel olarak local'e geç"""
+        if self.controlling_local:
+            print("⚠️ Zaten local kontrolünde")
+            return
+            
+        self.controlling_local = True
+        print("🎮 Manuel olarak local'e geçildi")
+        
+        # Client'a kontrol bırakma mesajı gönder
+        message = {
+            'type': 'release_control',
+            'reason': 'manual_switch'
+        }
+        
+        # Asyncio loop'ta çalıştır
+        asyncio.create_task(self.send_to_clients(message))
+
+    def start_manual_controls(self):
+        """Manuel kontrol butonları"""
+        def manual_control_thread():
+            print("\n" + "="*50)
+            print("🎮 MANUEL KONTROL BUTONLARI")
+            print("="*50)
+            print("1 - Windows'a geç (Client'a kontrol ver)")
+            print("2 - macOS'a geç (Local kontrole dön)")
+            print("3 - Durum göster")
+            print("q - Çıkış")
+            print("="*50)
+            
+            while self.running:
+                try:
+                    choice = input("\nSeçiminiz (1/2/3/q): ").strip().lower()
+                    
+                    if choice == '1':
+                        print("🔄 Windows'a geçiliyor...")
+                        self.switch_to_client()
+                        
+                    elif choice == '2':
+                        print("🔄 macOS'a geçiliyor...")
+                        self.switch_to_local()
+                        
+                    elif choice == '3':
+                        status = "macOS (Local)" if self.controlling_local else "Windows (Client)"
+                        client_count = len(self.clients)
+                        print(f"📊 Durum: {status}")
+                        print(f"🔗 Bağlı client sayısı: {client_count}")
+                        
+                        if self.client_info:
+                            for addr, info in self.client_info.items():
+                                print(f"   📱 {addr}: {info['screen_width']}x{info['screen_height']}")
+                        
+                    elif choice == 'q':
+                        print("👋 Çıkılıyor...")
+                        self.running = False
+                        break
+                        
+                    else:
+                        print("❌ Geçersiz seçim! (1/2/3/q)")
+                        
+                except KeyboardInterrupt:
+                    print("\n👋 Çıkılıyor...")
+                    self.running = False
+                    break
+                except Exception as e:
+                    print(f"⚠️ Hata: {e}")
+        
+        # Manuel kontrol thread'ini başlat
+        manual_thread = threading.Thread(target=manual_control_thread, daemon=True)
+        manual_thread.start()
+
+    def mouse_edge_detection(self):
+        """Mouse kenar algılama"""
+        def edge_detection_thread():
+            last_pos = None
+            edge_threshold = 5  # Kenardan kaç pixel uzakta algılansın
+            
+            while self.running:
+                try:
+                    if not self.controlling_local:
+                        time.sleep(0.1)
+                        continue
+                    
+                    # Mouse pozisyonunu al
+                    current_pos = self.input_handler.get_mouse_position()
+                    if current_pos is None:
+                        time.sleep(0.1)
+                        continue
+                    
+                    x, y = current_pos
+                    
+                    # Ekran boyutlarını al
+                    screen_width, screen_height = self.input_handler.get_screen_size()
+                    
+                    # Kenar kontrolü
+                    at_right_edge = x >= screen_width - edge_threshold
+                    at_left_edge = x <= edge_threshold
+                    at_top_edge = y <= edge_threshold
+                    at_bottom_edge = y >= screen_height - edge_threshold
+                    
+                    # Eğer kenardaysa ve hareket ettiyse
+                    if (at_right_edge or at_left_edge or at_top_edge or at_bottom_edge):
+                        if last_pos and current_pos != last_pos:
+                            print(f"🎯 Kenar algılandı: ({x}, {y}) - Ekran: {screen_width}x{screen_height}")
+                            
+                            # Client'a geç
+                            if self.clients:
+                                self.controlling_local = False
+                                
+                                # Koordinatları client ekranına dönüştür
+                                if self.client_info:
+                                    client_addr = list(self.client_info.keys())[0]
+                                    client_screen = self.client_info[client_addr]
+                                    
+                                    # Kenar pozisyonuna göre client'taki pozisyonu hesapla
+                                    if at_right_edge:
+                                        client_x = 10  # Sol kenara
+                                        client_y = int(y * client_screen['screen_height'] / screen_height)
+                                    elif at_left_edge:
+                                        client_x = client_screen['screen_width'] - 10  # Sağ kenara
+                                        client_y = int(y * client_screen['screen_height'] / screen_height)
+                                    elif at_top_edge:
+                                        client_x = int(x * client_screen['screen_width'] / screen_width)
+                                        client_y = client_screen['screen_height'] - 10  # Alt kenara
+                                    else:  # at_bottom_edge
+                                        client_x = int(x * client_screen['screen_width'] / screen_width)
+                                        client_y = 10  # Üst kenara
+                                    
+                                    message = {
+                                        'type': 'take_control',
+                                        'mouse_x': client_x,
+                                        'mouse_y': client_y,
+                                        'reason': 'edge_detection'
+                                    }
+                                else:
+                                    message = {
+                                        'type': 'take_control',
+                                        'reason': 'edge_detection'
+                                    }
+                                
+                                # Asyncio loop'ta mesaj gönder
+                                asyncio.create_task(self.send_to_clients(message))
+                                print(f"📤 Client'a kontrol gönderildi")
+                    
+                    last_pos = current_pos
+                    time.sleep(0.05)  # 50ms bekle
+                    
+                except Exception as e:
+                    print(f"⚠️ Kenar algılama hatası: {e}")
+                    time.sleep(1)
+        
+        # Kenar algılama thread'ini başlat
+        edge_thread = threading.Thread(target=edge_detection_thread, daemon=True)
+        edge_thread.start()
+
+    async def start_server(self):
+        """Server'ı başlat"""
+        print(f"🚀 SynergyClone Server başlatılıyor...")
+        print(f"📡 Adres: {self.host}:{self.port}")
+        print(f"💻 Platform: {platform.system()}")
+        
+        # Input handler'ı başlat
+        if not self.input_handler.start():
+            print("❌ Input handler başlatılamadı!")
+            return
+        
+        # Manuel kontrolleri başlat
+        self.start_manual_controls()
+        
+        # Mouse kenar algılamayı başlat
+        self.mouse_edge_detection()
+        
+        # WebSocket server'ı başlat
+        async def handle_client(websocket, path):
+            await asyncio.gather(
+                self.register_client(websocket, path),
+                self.handle_messages(websocket)
+            )
+        
+        async with websockets.serve(handle_client, self.host, self.port):
+            print("✅ Server başlatıldı! Clientların bağlanması bekleniyor...")
+            
+            # Server'ı çalışır durumda tut
+            try:
+                while self.running:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                print("\n👋 Server kapatılıyor...")
+            finally:
+                self.running = False
+                self.input_handler.stop()
+
+    async def handle_messages(self, websocket):
+        """Client mesajlarını dinle"""
+        try:
+            async for message in websocket:
+                await self.handle_client_message(websocket, message)
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        except Exception as e:
+            print(f"⚠️ Mesaj dinleme hatası: {e}")
 
 if __name__ == "__main__":
-    main() 
+    server = SynergyServer()
+    asyncio.run(server.start_server()) 
