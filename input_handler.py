@@ -222,6 +222,15 @@ class InputHandler:
                 except Exception as e:
                     self.capturing = False
                     raise PermissionError(f"macOS accessibility izinleri eksik: {e}")
+                
+                # macOS'ta polling tabanlı sistem kullan (daha güvenli)
+                print("🍎 macOS için polling tabanlı mouse tracking başlatılıyor...")
+                self._start_macos_polling()
+                print("✅ macOS polling sistemi başarıyla başlatıldı")
+                return True
+            
+            # macOS değilse normal listener sistemi
+            suppress_mode = self.suppress_input
             
             # Mouse listener - güvenli başlatma
             try:
@@ -229,10 +238,10 @@ class InputHandler:
                     on_move=self._on_mouse_move,
                     on_click=self._on_mouse_click,
                     on_scroll=self._on_mouse_scroll,
-                    suppress=self.suppress_input
+                    suppress=suppress_mode
                 )
                 self.mouse_listener.start()
-                time.sleep(0.1)  # Kısa bir bekleme
+                time.sleep(0.2)
                 
                 # Mouse listener çalışıyor mu test et
                 if not self.mouse_listener.running:
@@ -252,10 +261,10 @@ class InputHandler:
                 self.keyboard_listener = self.KeyboardListener(
                     on_press=self._on_key_press,
                     on_release=self._on_key_release,
-                    suppress=self.suppress_input
+                    suppress=suppress_mode
                 )
                 self.keyboard_listener.start()
-                time.sleep(0.1)  # Kısa bir bekleme
+                time.sleep(0.2)
                 
                 # Keyboard listener çalışıyor mu test et
                 if not self.keyboard_listener.running:
@@ -274,15 +283,6 @@ class InputHandler:
                     except:
                         pass
                 raise RuntimeError(f"Keyboard listener hatası: {e}")
-            
-            # Final test - macOS'ta biraz daha bekle
-            if self.platform == "darwin":
-                time.sleep(0.5)  # macOS'ta biraz daha bekle
-                
-                # Listener'lar hala çalışıyor mu?
-                if not (self.mouse_listener.running and self.keyboard_listener.running):
-                    self.capturing = False
-                    raise RuntimeError("Listener'lar beklenmedik şekilde durdu")
             
             return True
             
@@ -304,13 +304,43 @@ class InputHandler:
                 self.keyboard_listener = None
                 
             raise RuntimeError(f"Input capture başlatılamadı: {e}")
+    
+    def _start_macos_polling(self):
+        """macOS için polling tabanlı mouse tracking başlatır."""
+        self.polling_active = True
+        self.last_mouse_position = self.mouse_controller.position
         
+        def polling_loop():
+            while self.polling_active and self.capturing:
+                try:
+                    current_pos = self.mouse_controller.position
+                    if current_pos != self.last_mouse_position:
+                        self._on_mouse_move(current_pos[0], current_pos[1])
+                        self.last_mouse_position = current_pos
+                    time.sleep(0.01)  # 100 FPS polling
+                except Exception as e:
+                    print(f"Polling hatası: {e}")
+                    break
+        
+        self.polling_thread = threading.Thread(target=polling_loop, daemon=True)
+        self.polling_thread.start()
+    
     def stop_capture(self):
         """Input yakalamayı durdurur."""
         if not self.capturing:
             return
             
         self.capturing = False
+        
+        # macOS polling sistemini durdur
+        if self.platform == "darwin" and hasattr(self, 'polling_active'):
+            self.polling_active = False
+            if hasattr(self, 'polling_thread') and self.polling_thread.is_alive():
+                try:
+                    self.polling_thread.join(timeout=1.0)
+                except RuntimeError:
+                    # Thread join hatası - normal durum
+                    pass
         
         try:
             if self.mouse_listener:
@@ -520,12 +550,46 @@ class ScreenManager:
     def _update_screen_info(self):
         """Ekran bilgilerini günceller."""
         try:
-            import tkinter as tk
-            root = tk.Tk()
-            
-            # Ana ekran bilgileri
-            width = root.winfo_screenwidth()
-            height = root.winfo_screenheight()
+            # Platform'a göre farklı yöntemler kullan
+            if platform.system() == "Windows":
+                # Windows'ta DPI scaling sorununu çözmek için Windows API kullan
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+                    
+                    # DPI awareness ayarla
+                    try:
+                        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_SYSTEM_DPI_AWARE
+                    except:
+                        try:
+                            ctypes.windll.user32.SetProcessDPIAware()
+                        except:
+                            pass
+                    
+                    # Gerçek ekran çözünürlüğünü al
+                    user32 = ctypes.windll.user32
+                    width = user32.GetSystemMetrics(0)   # SM_CXSCREEN
+                    height = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+                    
+                    print(f"Windows gerçek ekran çözünürlüğü: {width}x{height}")
+                    
+                except Exception as e:
+                    print(f"Windows API hatası: {e}")
+                    # Fallback: tkinter kullan
+                    import tkinter as tk
+                    root = tk.Tk()
+                    width = root.winfo_screenwidth()
+                    height = root.winfo_screenheight()
+                    root.destroy()
+                    print(f"Tkinter ekran çözünürlüğü (DPI scaled): {width}x{height}")
+            else:
+                # macOS ve Linux için tkinter kullan
+                import tkinter as tk
+                root = tk.Tk()
+                width = root.winfo_screenwidth()
+                height = root.winfo_screenheight()
+                root.destroy()
+                print(f"Ekran çözünürlüğü: {width}x{height}")
             
             from utils import ScreenInfo
             main_screen = ScreenInfo(
@@ -537,7 +601,6 @@ class ScreenManager:
             )
             
             self.screens = [main_screen]
-            root.destroy()
             
         except Exception as e:
             print(f"Ekran bilgisi alınamadı: {e}")

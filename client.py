@@ -195,7 +195,25 @@ class SynergyClient:
             # Mouse hareket olayını simüle et
             x = message.data.get('x', 0)
             y = message.data.get('y', 0)
-            self.input_handler.simulate_mouse_move(x, y)
+            
+            # Koordinatları client ekranına göre ölçeklendir
+            if self.server_screen and self.client_screen:
+                # Server koordinatlarını client koordinatlarına dönüştür
+                scale_x = self.client_screen.width / self.server_screen.width
+                scale_y = self.client_screen.height / self.server_screen.height
+                
+                scaled_x = x * scale_x
+                scaled_y = y * scale_y
+                
+                # İlk mouse hareketi için ölçek bilgisini logla
+                if not hasattr(self, '_scale_logged'):
+                    self.log(f"📐 Koordinat ölçeklendirme: Server {self.server_screen.width}x{self.server_screen.height} -> Client {self.client_screen.width}x{self.client_screen.height}")
+                    self.log(f"📐 Ölçek faktörleri: X={scale_x:.3f}, Y={scale_y:.3f}")
+                    self._scale_logged = True
+                
+                self.input_handler.simulate_mouse_move(scaled_x, scaled_y)
+            else:
+                self.input_handler.simulate_mouse_move(x, y)
             
         elif message.type == MessageType.MOUSE_CLICK:
             # Mouse tıklama olayını simüle et
@@ -203,7 +221,16 @@ class SynergyClient:
             y = message.data.get('y', 0)
             button = message.data.get('button', 'left')
             pressed = message.data.get('pressed', True)
-            self.input_handler.simulate_mouse_click(x, y, button, pressed)
+            
+            # Koordinatları client ekranına göre ölçeklendir
+            if self.server_screen and self.client_screen:
+                scale_x = self.client_screen.width / self.server_screen.width
+                scale_y = self.client_screen.height / self.server_screen.height
+                scaled_x = x * scale_x
+                scaled_y = y * scale_y
+                self.input_handler.simulate_mouse_click(scaled_x, scaled_y, button, pressed)
+            else:
+                self.input_handler.simulate_mouse_click(x, y, button, pressed)
             
         elif message.type == MessageType.MOUSE_SCROLL:
             # Mouse scroll olayını simüle et
@@ -211,7 +238,16 @@ class SynergyClient:
             y = message.data.get('y', 0)
             scroll_x = message.data.get('scroll_x', 0)
             scroll_y = message.data.get('scroll_y', 0)
-            self.input_handler.simulate_mouse_scroll(x, y, scroll_x, scroll_y)
+            
+            # Koordinatları client ekranına göre ölçeklendir
+            if self.server_screen and self.client_screen:
+                scale_x = self.client_screen.width / self.server_screen.width
+                scale_y = self.client_screen.height / self.server_screen.height
+                scaled_x = x * scale_x
+                scaled_y = y * scale_y
+                self.input_handler.simulate_mouse_scroll(scaled_x, scaled_y, scroll_x, scroll_y)
+            else:
+                self.input_handler.simulate_mouse_scroll(x, y, scroll_x, scroll_y)
             
         elif message.type == MessageType.KEY_PRESS:
             # Klavye tuşu basma olayını simüle et

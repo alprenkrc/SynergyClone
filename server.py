@@ -85,20 +85,28 @@ class SynergyServer:
             # Input yakalamayı başlat (güvenli şekilde)
             input_capture_success = False
             try:
-                # macOS'ta güvenli mod - input yakalama atla
+                # macOS'ta accessibility izinlerini kontrol et
                 if self.input_handler.platform == "darwin":
                     self.log("🍎 macOS tespit edildi")
-                    self.log("⚠️ Terminal'den çalıştırıldığında güvenli mod aktif")
-                    self.log("⚠️ Input yakalama atlanıyor - sadece WebSocket modu")
-                    self.log("")
-                    self.log("🎯 Mouse/Klavye paylaşımı için:")
-                    self.log("💡 'SynergyClone Server.app' kullanın (önerilen)")
-                    self.log("💡 Veya Terminal'e accessibility izni verin")
-                    self.log("")
-                    self.log("📋 Manuel kullanım:")
-                    self.log("- Client bağlanabilir")
-                    self.log("- Clipboard paylaşımı çalışır")
-                    self.log("- Mouse/klavye manuel olarak kontrol edilmeli")
+                    if self.input_handler.accessibility_available:
+                        self.log("✅ Accessibility izinleri mevcut")
+                        self.log("🎯 Input yakalama başlatılıyor...")
+                        self.input_handler.start_capture()
+                        input_capture_success = True
+                        self.log("✅ Input yakalama başarıyla başlatıldı")
+                        self.log("🎯 Mouse ve klavye olayları yakalanacak")
+                    else:
+                        self.log("⚠️ Accessibility izinleri eksik")
+                        self.log("⚠️ Input yakalama atlanıyor - sadece WebSocket modu")
+                        self.log("")
+                        self.log("🎯 Mouse/Klavye paylaşımı için:")
+                        self.log("💡 System Settings > Privacy & Security > Accessibility")
+                        self.log("💡 Terminal veya Python'a izin verin ve uygulamayı yeniden başlatın")
+                        self.log("")
+                        self.log("📋 Manuel kullanım:")
+                        self.log("- Client bağlanabilir")
+                        self.log("- Clipboard paylaşımı çalışır")
+                        self.log("- Mouse/klavye manuel olarak kontrol edilmeli")
                 else:
                     # macOS değilse normal şekilde başlat
                     self.input_handler.start_capture()
@@ -267,13 +275,13 @@ class SynergyServer:
                 self.mouse_moved_to_client = True
                 self.log(f"Mouse client'a geçti: {target_client}")
             
-            # Mouse olayını istemciye gönder
+            # Mouse olayını istemciye gönder - thread-safe şekilde
             if target_client and target_client in self.clients:
                 msg = Message(MessageType.MOUSE_MOVE, {
                     'x': event.x,
                     'y': event.y
                 })
-                asyncio.create_task(self._send_message(target_client, msg))
+                self._send_message_threadsafe(target_client, msg)
         else:
             # Mouse sunucu ekranına geri döndü
             if self.current_screen != "server":
@@ -281,6 +289,21 @@ class SynergyServer:
                 self.input_handler.set_suppress_input(False)
                 self.mouse_moved_to_client = False
                 self.log("Mouse sunucuya geri döndü")
+    
+    def _send_message_threadsafe(self, client_id: str, message: Message):
+        """Thread-safe şekilde mesaj gönderir."""
+        try:
+            # Asyncio event loop'u kontrol et
+            loop = asyncio.get_running_loop()
+            # Eğer loop varsa task oluştur
+            asyncio.run_coroutine_threadsafe(
+                self._send_message(client_id, message), loop
+            )
+        except RuntimeError:
+            # Event loop yoksa veya farklı thread'deyse, queue'ya ekle
+            if not hasattr(self, 'message_queue'):
+                self.message_queue = []
+            self.message_queue.append((client_id, message))
     
     def _handle_mouse_click(self, event: MouseEvent):
         """Mouse tıklama olayını işler."""
@@ -295,7 +318,7 @@ class SynergyServer:
         })
         
         if self.current_screen != "server":
-            asyncio.create_task(self._send_message(self.current_screen, msg))
+            self._send_message_threadsafe(self.current_screen, msg)
     
     def _handle_mouse_scroll(self, event: MouseEvent):
         """Mouse scroll olayını işler."""
@@ -310,7 +333,7 @@ class SynergyServer:
         })
         
         if self.current_screen != "server":
-            asyncio.create_task(self._send_message(self.current_screen, msg))
+            self._send_message_threadsafe(self.current_screen, msg)
     
     def _handle_key_press(self, event: KeyEvent):
         """Klavye tuşu basma olayını işler."""
@@ -323,7 +346,7 @@ class SynergyServer:
         })
         
         if self.current_screen != "server":
-            asyncio.create_task(self._send_message(self.current_screen, msg))
+            self._send_message_threadsafe(self.current_screen, msg)
     
     def _handle_key_release(self, event: KeyEvent):
         """Klavye tuşu bırakma olayını işler."""
@@ -336,19 +359,30 @@ class SynergyServer:
         })
         
         if self.current_screen != "server":
-            asyncio.create_task(self._send_message(self.current_screen, msg))
+            self._send_message_threadsafe(self.current_screen, msg)
     
     def _should_forward_to_client(self, x: int, y: int) -> bool:
         """Mouse'un istemciye gönderilip gönderilmeyeceğini belirler."""
-        # Basit mantık: mouse ekran sınırlarından çıkarsa istemciye gönder
         screen = self.server_screen
         
         # Sağ kenardan çıktı mı?
-        if x >= screen.width - 5:
+        if x >= screen.width - 2:
+            self.log(f"➡️ Mouse sağ kenardan çıktı: x={x}, ekran genişliği={screen.width}")
             return True
         
         # Sol kenardan çıktı mı?
-        if x <= 5:
+        if x <= 1:
+            self.log(f"⬅️ Mouse sol kenardan çıktı: x={x}")
+            return True
+        
+        # Üst kenardan çıktı mı?
+        if y <= 1:
+            self.log(f"⬆️ Mouse üst kenardan çıktı: y={y}")
+            return True
+        
+        # Alt kenardan çıktı mı?
+        if y >= screen.height - 2:
+            self.log(f"⬇️ Mouse alt kenardan çıktı: y={y}, ekran yüksekliği={screen.height}")
             return True
         
         return False
