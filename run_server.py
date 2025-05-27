@@ -4,9 +4,8 @@ SynergyClone Server Çalıştırıcı - macOS
 """
 
 from server import SynergyServer
-import asyncio
 
 if __name__ == "__main__":
-    print("🍎 SynergyClone Server (macOS) başlatılıyor...")
+    print("🍎 SynergyClone Server (macOS) GUI başlatılıyor...")
     server = SynergyServer()
-    asyncio.run(server.start_server()) 
+    server.run() 
