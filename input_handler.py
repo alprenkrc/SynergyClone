@@ -229,7 +229,12 @@ class InputHandler:
                 print("✅ macOS polling sistemi başarıyla başlatıldı")
                 return True
             
-            # macOS değilse normal listener sistemi
+            # Windows'ta özel işlem
+            elif self.platform == "windows":
+                print("🪟 Windows için güvenli listener başlatılıyor...")
+                return self._start_windows_safe_capture()
+            
+            # Linux için normal listener sistemi
             suppress_mode = self.suppress_input
             
             # Mouse listener - güvenli başlatma
@@ -305,6 +310,89 @@ class InputHandler:
                 
             raise RuntimeError(f"Input capture başlatılamadı: {e}")
     
+    def _start_windows_safe_capture(self):
+        """Windows için güvenli input yakalama başlatır."""
+        try:
+            # Windows'ta sadece polling kullan - listener sorunları nedeniyle
+            print("🪟 Windows polling sistemi başlatılıyor...")
+            self._start_windows_polling()
+            print("✅ Windows polling sistemi başarıyla başlatıldı")
+            return True
+            
+        except Exception as e:
+            print(f"Windows polling hatası: {e}")
+            # Fallback: listener'ları dikkatli şekilde dene
+            return self._try_windows_listeners()
+    
+    def _start_windows_polling(self):
+        """Windows için polling tabanlı mouse tracking başlatır."""
+        self.polling_active = True
+        self.last_mouse_position = self.mouse_controller.position
+        
+        def polling_loop():
+            while self.polling_active and self.capturing:
+                try:
+                    current_pos = self.mouse_controller.position
+                    if current_pos != self.last_mouse_position:
+                        self._on_mouse_move(current_pos[0], current_pos[1])
+                        self.last_mouse_position = current_pos
+                    time.sleep(0.01)  # 100 FPS polling
+                except Exception as e:
+                    print(f"Windows polling hatası: {e}")
+                    break
+        
+        self.polling_thread = threading.Thread(target=polling_loop, daemon=True)
+        self.polling_thread.start()
+    
+    def _try_windows_listeners(self):
+        """Windows'ta listener'ları dikkatli şekilde dener."""
+        try:
+            print("🪟 Windows listener'ları deneniyor...")
+            
+            # Suppress=False ile dene (daha güvenli)
+            self.mouse_listener = self.MouseListener(
+                on_move=self._on_mouse_move,
+                on_click=self._on_mouse_click,
+                on_scroll=self._on_mouse_scroll,
+                suppress=False  # Windows'ta suppress=False daha güvenli
+            )
+            
+            self.mouse_listener.start()
+            time.sleep(0.5)  # Daha uzun bekleme
+            
+            # Listener durumunu kontrol et
+            if hasattr(self.mouse_listener, 'running') and self.mouse_listener.running:
+                print("✅ Windows mouse listener başarılı")
+                
+                # Keyboard listener'ı da dene
+                try:
+                    self.keyboard_listener = self.KeyboardListener(
+                        on_press=self._on_key_press,
+                        on_release=self._on_key_release,
+                        suppress=False
+                    )
+                    self.keyboard_listener.start()
+                    time.sleep(0.5)
+                    
+                    if hasattr(self.keyboard_listener, 'running') and self.keyboard_listener.running:
+                        print("✅ Windows keyboard listener başarılı")
+                        return True
+                    else:
+                        print("⚠️ Windows keyboard listener başarısız - sadece mouse")
+                        return True  # Mouse yeterli
+                        
+                except Exception as e:
+                    print(f"Windows keyboard listener hatası: {e}")
+                    return True  # Mouse yeterli
+                    
+            else:
+                print("❌ Windows mouse listener başarısız")
+                return False
+                
+        except Exception as e:
+            print(f"Windows listener hatası: {e}")
+            return False
+    
     def _start_macos_polling(self):
         """macOS için polling tabanlı mouse tracking başlatır."""
         self.polling_active = True
@@ -332,8 +420,8 @@ class InputHandler:
             
         self.capturing = False
         
-        # macOS polling sistemini durdur
-        if self.platform == "darwin" and hasattr(self, 'polling_active'):
+        # Polling sistemlerini durdur (macOS ve Windows)
+        if hasattr(self, 'polling_active'):
             self.polling_active = False
             if hasattr(self, 'polling_thread') and self.polling_thread.is_alive():
                 try:
@@ -356,7 +444,20 @@ class InputHandler:
     def set_suppress_input(self, suppress: bool):
         """Input'u bastırma durumunu ayarlar."""
         self.suppress_input = suppress
+        
+        # Windows'ta polling kullanıyorsa yeniden başlatma
+        if self.platform == "windows" and hasattr(self, 'polling_active') and self.polling_active:
+            print(f"🪟 Windows polling aktif - suppress değişikliği atlanıyor: {suppress}")
+            return
+        
+        # macOS'ta polling kullanıyorsa yeniden başlatma
+        if self.platform == "darwin" and hasattr(self, 'polling_active') and self.polling_active:
+            print(f"🍎 macOS polling aktif - suppress değişikliği atlanıyor: {suppress}")
+            return
+        
+        # Sadece listener kullanıyorsa yeniden başlat
         if self.capturing:
+            print(f"🔄 Listener yeniden başlatılıyor - suppress: {suppress}")
             self.stop_capture()
             self.start_capture()
     
