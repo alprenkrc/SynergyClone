@@ -85,19 +85,23 @@ class SynergyServer:
             # Input yakalamayı başlat (güvenli şekilde)
             input_capture_success = False
             try:
-                # macOS'ta güvenli mod - izin kontrolü yapmadan atla
+                # macOS'ta önce izin kontrolü ve isteme
                 if self.input_handler.platform == "darwin":
-                    self.log("🍎 macOS tespit edildi")
-                    self.log("⚠️ Güvenlik nedeniyle input yakalama atlanıyor")
-                    self.log("⚠️ Sunucu sadece WebSocket iletişimi ile çalışacak")
-                    self.log("")
-                    self.log("🔧 Tam özellikli kullanım için:")
-                    self.log("1. System Settings > Privacy & Security > Accessibility")
-                    self.log("2. Terminal veya Python'ı listeye ekleyin")
-                    self.log("3. İzinleri etkinleştirin")
-                    self.log("4. Uygulamayı yeniden başlatın")
-                    self.log("")
-                    self.log("💡 Alternatif: 'SynergyClone Server.app' kullanın")
+                    self.log("🔐 macOS Accessibility izinleri kontrol ediliyor...")
+                    
+                    # İzin iste (eğer yoksa)
+                    permission_granted = request_macos_accessibility_permission()
+                    
+                    if not permission_granted:
+                        self.log("⚠️ macOS Accessibility izinleri reddedildi")
+                        self.log("⚠️ Input yakalama atlanıyor - sadece WebSocket modu")
+                        self.log("💡 İzin vermek için: System Settings > Privacy & Security > Accessibility")
+                        self.log("💡 Terminal veya Python'ı ekleyin ve uygulamayı yeniden başlatın")
+                    else:
+                        self.input_handler.start_capture()
+                        input_capture_success = True
+                        self.log("✅ Input yakalama başarıyla başlatıldı")
+                        self.log("🎯 Mouse ve klavye olayları yakalanacak")
                 else:
                     # macOS değilse normal şekilde başlat
                     self.input_handler.start_capture()

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import os
+import sys
+
+# Bundle içindeki Python dosyalarının yolunu ekle
+bundle_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+resources_dir = os.path.join(bundle_dir, "Resources")
+sys.path.insert(0, resources_dir)
+
+# Ana server'ı çalıştır
+if __name__ == "__main__":
+    import server
+    server.main()

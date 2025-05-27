@@ -1,184 +1,123 @@
 # SynergyClone
 
-Mouse ve klavye paylaşımı için açık kaynak çözüm. Birden fazla bilgisayar arasında mouse ve klavyeyi paylaşmanızı sağlar.
+🖱️ **Mouse ve klavye paylaşımı** - İki bilgisayar arasında tek mouse ve klavye kullanın!
 
 ## 🚀 Hızlı Başlangıç
 
-### Gereksinimler
-
+### 1. Gereksinimler
 ```bash
 pip install -r requirements.txt
 ```
 
-### Sunucu Başlatma
-
-**Önerilen (Basit Mod):**
-```bash
-python3 run_server_simple.py
-```
-
-**Tam Özellikli (GUI ile):**
+### 2. Sunucu (Ana Bilgisayar)
 ```bash
 python3 run_server.py
 ```
 
-### İstemci Başlatma
-
+### 3. İstemci (Diğer Bilgisayar)
 ```bash
 python3 run_client.py
 ```
 
 ## 📁 Proje Yapısı
 
-### Ana Dosyalar
-- `server.py` - Ana sunucu uygulaması (GUI ile)
-- `client.py` - Ana istemci uygulaması
-- `run_server_simple.py` - Basit sunucu (input capture olmadan)
-- `utils.py` - Yardımcı fonksiyonlar ve sınıflar
-- `input_handler.py` - Mouse/klavye yakalama ve simülasyon
-
-### Başlatıcılar
-- `run_server.py` - GUI sunucu başlatıcısı
-- `run_client.py` - İstemci başlatıcısı
-
-### Test Dosyaları
-- `test_connection.py` - Sunucu bağlantı testi
-- `simple_test.py` - Basit test scripti
-
-### Alternatif Versiyonlar
-- `server_simple.py` - Basit sunucu implementasyonu
-- `client_simple.py` - Basit istemci implementasyonu
-
-## 🔧 Kullanım
-
-### 1. Sunucu Kurulumu (Ana Bilgisayar)
-
-Ana bilgisayarda sunucuyu başlatın:
-
-```bash
-# Basit mod (önerilen)
-python3 run_server_simple.py
-
-# veya GUI ile
-python3 run_server.py
+```
+SynergyClone/
+├── server.py           # Ana sunucu uygulaması
+├── client.py           # Ana istemci uygulaması  
+├── run_server.py       # Sunucu başlatıcısı
+├── run_client.py       # İstemci başlatıcısı
+├── utils.py            # Yardımcı fonksiyonlar
+├── input_handler.py    # Mouse/klavye işlemleri
+├── requirements.txt    # Python bağımlılıkları
+└── README.md          # Bu dosya
 ```
 
-Sunucu başladığında şu bilgileri göreceksiniz:
-- IP adresi (örn: 192.168.1.100)
-- Port (varsayılan: 24800)
+## 🎯 Nasıl Çalışır?
 
-### 2. İstemci Kurulumu (Diğer Bilgisayarlar)
+1. **Sunucu** ana bilgisayarda çalışır
+2. **İstemci** diğer bilgisayarda çalışır ve sunucuya bağlanır
+3. Mouse ekran kenarına geldiğinde **otomatik olarak diğer bilgisayara geçer**
+4. **Klavye** ve **clipboard** da paylaşılır
 
-Diğer bilgisayarlarda istemciyi başlatın:
+## 🔧 Kurulum Adımları
 
-```bash
-python3 run_client.py
-```
+### Ana Bilgisayar (Sunucu):
+1. `python3 run_server.py` çalıştırın
+2. **"Sunucuyu Başlat"** butonuna tıklayın
+3. IP adresini not edin (örn: 192.168.1.100)
 
-İstemci başladığında:
-1. Sunucu IP adresini girin
-2. Bağlan butonuna tıklayın
+### Diğer Bilgisayar (İstemci):
+1. `python3 run_client.py` çalıştırın  
+2. Sunucu IP adresini girin
+3. **"Bağlan"** butonuna tıklayın
 
-### 3. Bağlantı Testi
+## ⚠️ macOS Kullanıcıları
 
-Sunucunun çalışıp çalışmadığını test etmek için:
+macOS'ta **Accessibility izinleri** gereklidir:
 
-```bash
-python3 test_connection.py
-```
+1. **System Settings** → **Privacy & Security** → **Accessibility**
+2. **Terminal** veya **Python**'ı ekleyin
+3. İzinleri **etkinleştirin**
+4. Uygulamayı **yeniden başlatın**
 
-## ⚠️ macOS Kullanıcıları İçin
+**İzin vermezseniz:** Sadece WebSocket iletişimi çalışır (manuel clipboard paylaşımı)
 
-macOS'ta input capture için Accessibility izinleri gereklidir:
+## 🎮 Kullanım
 
-1. **System Settings** > **Privacy & Security** > **Accessibility**
-2. **Terminal** veya **Python** uygulamasını ekleyin
-3. İzinleri etkinleştirin
+### Mouse Geçişi:
+- Mouse'u **ekran kenarına** götürün
+- Otomatik olarak **diğer bilgisayara** geçer
+- Geri dönmek için **diğer kenardan** gelin
 
-Eğer izin vermek istemiyorsanız, `run_server_simple.py` kullanın - bu input capture olmadan çalışır.
+### Klavye:
+- Mouse hangi bilgisayardaysa **klavye de orada** çalışır
+
+### Clipboard:
+- **Otomatik:** Kopyala/yapıştır işlemleri senkronize olur
+- **Manuel:** GUI'deki clipboard alanını kullanın
 
 ## 🔍 Sorun Giderme
 
-### Bağlantı Sorunları
+### Bağlantı Sorunları:
+- **Firewall:** Port 24800'ün açık olduğundan emin olun
+- **IP Adresi:** Sunucuda gösterilen IP'yi kullanın
+- **Ağ:** Aynı WiFi/ağda olduğunuzdan emin olun
 
-1. **Sunucu çalışıyor mu?**
-   ```bash
-   python3 test_connection.py
-   ```
+### macOS "Illegal Hardware Instruction":
+- **Çözüm:** Accessibility izinleri verin
+- **Geçici:** Sadece WebSocket modu ile çalışır
 
-2. **Firewall kontrolü**
-   - Port 24800'ün açık olduğundan emin olun
+### Windows İzinleri:
+- **Admin hakları** gerekebilir
+- **Antivirus** programını kontrol edin
 
-3. **IP adresi kontrolü**
-   - Sunucu başladığında gösterilen IP adresini kullanın
+## ✨ Özellikler
 
-### macOS "Illegal Hardware Instruction" Hatası
+### ✅ Çalışan:
+- 🖱️ Mouse paylaşımı ve geçişi
+- ⌨️ Klavye paylaşımı  
+- 📋 Clipboard senkronizasyonu
+- 🖥️ Modern GUI arayüzü
+- 🔄 Otomatik yeniden bağlanma
+- 💓 Bağlantı durumu takibi
 
-Bu hata accessibility izinleri ile ilgilidir. Çözümler:
+### 🔄 Geliştirme Aşamasında:
+- 🎯 Daha akıllı ekran geçişi
+- ⚙️ Özelleştirilebilir ayarlar
+- 🔐 Şifre koruması
 
-1. **Basit modu kullanın:**
-   ```bash
-   python3 run_server_simple.py
-   ```
+## 🛠️ Teknik Detaylar
 
-2. **Accessibility izinleri verin:**
-   - System Settings > Privacy & Security > Accessibility
-   - Terminal'i ekleyin ve etkinleştirin
-
-## 📋 Özellikler
-
-### Çalışan Özellikler
-- ✅ WebSocket tabanlı iletişim
-- ✅ Çoklu istemci desteği
-- ✅ Handshake protokolü
-- ✅ Heartbeat sistemi
-- ✅ Clipboard paylaşımı (mesaj düzeyinde)
-- ✅ GUI arayüzü
-- ✅ Basit mod (input capture olmadan)
-
-### Geliştirme Aşamasında
-- 🔄 Mouse/klavye yakalama (macOS izinleri gerekli)
-- 🔄 Ekranlar arası geçiş
-- 🔄 Otomatik bağlantı
-
-## 🛠️ Geliştirme
-
-### Kod Yapısı
-
-- **Server**: WebSocket sunucusu, istemci yönetimi
-- **Client**: WebSocket istemcisi, input simülasyonu
-- **Utils**: Mesaj protokolü, yardımcı fonksiyonlar
-- **Input Handler**: Platform-specific input yakalama
-
-### Mesaj Protokolü
-
-```json
-{
-  "type": "message_type",
-  "data": {...},
-  "timestamp": "..."
-}
-```
-
-Mesaj tipleri:
-- `handshake` - Bağlantı kurma
-- `heartbeat` - Canlılık kontrolü
-- `mouse_move` - Mouse hareketi
-- `mouse_click` - Mouse tıklama
-- `key_press` - Klavye basma
-- `clipboard` - Clipboard paylaşımı
+- **Protokol:** WebSocket (ws://)
+- **Port:** 24800 (varsayılan)
+- **Platform:** Windows, macOS, Linux
+- **Python:** 3.8+
 
 ## 📄 Lisans
 
-Bu proje açık kaynak kodludur. Kendi sorumluluğunuzda kullanın.
-
-## 🤝 Katkıda Bulunma
-
-1. Fork yapın
-2. Feature branch oluşturun
-3. Değişikliklerinizi commit edin
-4. Pull request gönderin
+Bu proje açık kaynak kodludur. Eğitim ve kişisel kullanım için serbesttir.
 
 ---
 
-**Not**: Bu proje eğitim amaçlıdır. Üretim ortamında kullanmadan önce güvenlik testleri yapın. 
+**💡 İpucu:** İlk kurulumda accessibility izinleri verin, sonra sorunsuz çalışır! 

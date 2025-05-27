@@ -1,0 +1,4 @@
+pynput==1.7.6
+websockets==12.0
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pywin32>=300; sys_platform == "win32" 
